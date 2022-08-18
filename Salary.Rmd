@@ -1,0 +1,124 @@
+---
+title: "Salary"
+author: "Rachel"
+date: "20/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r,message=FALSE}
+black_saber_current_employees <- read_csv("data/black-saber-current-employees.csv")
+black_saber_current_employees_Q4 <- black_saber_current_employees %>%
+  mutate(salary=as.numeric(parse_number(salary))) %>%
+  mutate(gender= str_replace(gender, "Prefer not to say", 
+                               "Unknown")) %>%
+  mutate(role_seniority = fct_relevel(role_seniority, "Director", after=7)) %>%
+  mutate(role_seniority = fct_relevel(role_seniority, "Manager", after=6)) %>%
+  filter(financial_q=="2020 Q4")
+```
+
+
+```{r}
+black_saber_current_employees_Q4 %>%
+  ggplot(aes(x=gender, y=salary, color = gender)) +
+  geom_boxplot() +
+  labs(title="Salary of Different Gender", x="Gender", y= "Salary") +
+  scale_color_manual(name = "Gender", values = c("#FDAF01", "#01B9FD", "#7501FD")) +
+  theme_minimal()
+```
+
+```{r, fig.height=3}
+black_saber_current_employees_Q4 %>%
+ ggplot(aes(x=gender, y=salary,colour=gender)) + 
+  geom_boxplot() +
+  labs(title="Salary of Eight Teams", x="Gender", y="Salary",colour="Gender") +
+  facet_wrap(~team,nrow=2) +
+  scale_color_brewer(palette="Dark2") 
+```
+
+```{r fig.width=5, fig.height=4}
+black_saber_current_employees_Q4 %>%
+  ggplot(aes(x=gender, y=salary, colour=gender)) +
+  geom_boxplot()+
+  labs(title="Salary of Nine Role Seniorities", x="Gender", y="Salary",colour="Gender") +
+  facet_wrap(~role_seniority,nrow=2) +
+  scale_color_brewer(palette="Dark2") 
+  
+```
+
+```{r}
+black_saber_current_employees_Q4 %>%
+ggplot(aes(x=salary, 
+      y=productivity,
+      colour=gender))+ 
+      geom_point() +
+      geom_line()
+      labs(title="Salary of Productivity and Salary", x="Productivity", y="Salary",colour="Gender")
+      
+        #legend("bottomright", legend=c("Mississauge", "Toronto"), col=as.factor(df2_adjusted$location), #title="Location", pch=1))
+```
+Model
+
+```{r, message=FALSE}
+library(lme4)
+library(lmtest)
+```
+
+```{r}
+mod1 <- lmer(salary~gender+leadership_for_level+(1|team),data=black_saber_current_employees_Q4)
+mod2 <- lmer(salary~gender+leadership_for_level+productivity+(1|team),data=black_saber_current_employees_Q4) 
+lrtest(mod1,mod2) #use model 2
+```
+
+```{r}
+mod2 <- lmer(salary~gender+leadership_for_level+productivity+(1|team),data=black_saber_current_employees_Q4) 
+mod3 <- lmer(salary~gender+productivity+(1|team),data=black_saber_current_employees_Q4)
+lrtest(mod3,mod2) #use model 2
+```
+
+```{r}
+mod2 <- lmer(salary~gender+leadership_for_level+productivity+(1|team),data=black_saber_current_employees_Q4)
+mod4 <- lmer(salary~gender+role_seniority+leadership_for_level+
+               productivity+(1|team),data=black_saber_current_employees_Q4)
+lrtest(mod2,mod4) #use model 4
+```
+
+```{r}
+mod4 <- lmer(salary~gender+role_seniority+leadership_for_level+
+               productivity+(1|team),data=black_saber_current_employees_Q4)
+mod5 <- lmer(salary~gender+leadership_for_level+productivity
+             +(role_seniority|team),data=black_saber_current_employees_Q4)
+lrtest(mod4,mod5) #use model 4
+```
+
+
+```{r}
+mod4 <- lmer(salary~gender+role_seniority+leadership_for_level+
+               productivity+(1|team),data=black_saber_current_employees_Q4)
+mod7 <- lmer(salary~gender+leadership_for_level+productivity+ (1|team)
+             +(role_seniority|team),data=black_saber_current_employees_Q4)
+lrtest(mod4,mod7) #use model 4 and model 4 is the best model
+```
+
+```{r}
+mod4 <- lmer(salary~gender+role_seniority+leadership_for_level+
+               productivity+(1|team),data=black_saber_current_employees_Q4)
+mod8 <- lmer(salary~role_seniority+leadership_for_level+
+               productivity+(1|team),data=black_saber_current_employees_Q4)
+lrtest(mod8,mod4) #Gender plays an important part
+```
+
+```{r}
+library(lmerTest)
+summary(mod4)
+```
+
+
+

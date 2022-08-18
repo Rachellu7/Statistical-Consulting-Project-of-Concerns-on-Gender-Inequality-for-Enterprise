@@ -1,0 +1,247 @@
+---
+title: "Promotion Sample"
+author: "Jiaqi Bi"
+date: "2021/4/20"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#load packages:
+```{r, include = FALSE}
+library(tidyverse)
+library(ggplot2)
+library(reshape)
+library(lattice)
+library(DataExplorer)
+library(corrplot)
+library(Hmisc)
+library(lme4)
+library(nlme)
+```
+
+#On current employees:
+```{r, include = FALSE}
+black_saber_current_employees <- read_csv("rstudio-export/black-saber-current-employees.csv")
+current_employees <- black_saber_current_employees
+
+summary(current_employees)
+```
+
+#change data type for wrangling: 
+```{r}
+current_employees$employee_id <- as.character(current_employees$employee_id)
+current_employees$salary <- gsub("\\$", "", current_employees$salary)
+current_employees$salary <- gsub("\\,", "", current_employees$salary)
+current_employees$salary <- as.numeric(current_employees$salary)
+```
+##Transform Data: #of promotime, avg. productivity,salary increase:
+
+#create subset for # of promotion:
+```{r}
+num_promoted <- current_employees %>% select(employee_id,role_seniority)
+wip1 <- num_promoted %>% 
+  group_by(employee_id) %>% count(role_seniority) %>%
+  pivot_wider(names_from = role_seniority, values_from = n)
+
+
+wip1$na_count <- apply(wip1, 1, function(x) sum(is.na(x)))
+wip1$num_promoted <- 9 - wip1$na_count
+promoted <- wip1[,c(1,12)] 
+wip1$num_promoted <- wip1$num_promoted -1
+```
+
+#average productivity for every employee:
+```{r}
+avg_prod <- current_employees %>% group_by(employee_id) %>% summarise(mean(productivity))
+```
+
+#calculate salary increase for every employee:
+```{r}
+wip2<- current_employees %>% group_by(employee_id) %>% summarise(max(salary))
+wip3 <- current_employees %>% group_by(employee_id) %>% summarise(min(salary))
+salary_inc <- inner_join(wip2,wip3,mby="employee_id")
+salary_inc$raise <- salary_inc$`max(salary)`-salary_inc$`min(salary)`
+```
+#Re-join all new features with unique employee ID: 
+```{r}
+all_employee <- inner_join(avg_prod,promoted,by="employee_id")
+all_employee <- inner_join(all_employee,salary_inc,by="employee_id")
+all_employee <- all_employee[,c(1,2,3,6)]
+all_employee$salary_raise <- all_employee$raise
+all_employee$avg_productivity <- all_employee$`mean(productivity)`
+all_employee <- all_employee[,c(1,3,5,6)]
+
+other_subset <- current_employees[,c(1:3, 6)]
+leadership <- other_subset %>% 
+  group_by(employee_id) %>% count(leadership_for_level) %>%
+  pivot_wider(names_from = leadership_for_level, values_from = n) 
+leadership[is.na(leadership)] <- 0
+
+other_subset <- other_subset[,c(1:3)]
+other_subset <- distinct(other_subset)
+
+new_dat <- inner_join(all_employee, leadership, by="employee_id")
+new_dat <- inner_join(new_dat, other_subset, by="employee_id")
+```
+#change variable data types:
+```{r}
+new_dat$gender <- as.factor(new_dat$gender)
+new_dat$team <- as.factor(new_dat$team)
+
+new_dat$leadership_appropriate <- new_dat$`Appropriate for level`
+new_dat$leadership_needsimprov <- new_dat$`Needs improvement`
+new_dat$leadership_exceeds <- new_dat$`Exceeds expectations`
+new_dat <- new_dat[,-c(5:7)]
+
+new_dat$num_promoted <- new_dat$num_promoted - 1 #
+
+str(new_dat)
+```
+#Fit model:
+#fixed effects & random effects:
+#salary_raise as outcome variable
+```{r}
+LMM1 <- lme(salary_raise ~gender+team+avg_productivity,data=new_dat,random = ~1|employee_id, method = "ML")
+LMM2<-lme(salary_raise ~gender+team+avg_productivity+leadership_exceeds,data=new_dat,random = ~1|employee_id, method = "ML")
+```
+#number of promotions as outcome variable:
+```{r}
+LMM3 <- lme(num_promoted ~gender+team+avg_productivity,data=new_dat,random = ~1|employee_id, method = "ML")
+LMM4 <- lme(num_promoted ~gender+team+avg_productivity+leadership_exceeds,data=new_dat,random = ~1|employee_id, method = "ML")
+
+lmtest::lrtest(LMM3, LMM4)
+```
+
+
+#OLD CODES FROM LAST TIME:------------------------------
+#basic plot:
+```{r}
+#看看不同性别的avg productivity是否相差不大
+new_dat %>%
+  ggplot(aes(x = gender, y = avg_productivity, color = gender)) +
+  geom_boxplot() +
+  scale_color_manual(name = "Gender", values = c("#FDAF01", "#01B9FD", "#7501FD")) +
+  theme_minimal() +
+  labs(title = "Gender vs. Avg Productivity", x = "Gender", y = "Average Productivity")
+```
+
+```{r}
+#看看不同性别的number of promotions是否相差不大
+rbc_fig1 <- new_dat %>% 
+  ggplot(aes(x = num_promoted, fill = gender)) +
+  geom_bar() +
+  scale_fill_manual(name = "Gender", values = c("#FDAF01", "#01B9FD", "#7501FD")) +
+  theme_minimal() +
+  labs(title = "Gender vs. Number of Promotions", x = "Number of Promotions", y = "Count")
+rbc_fig1
+ggsave("rbc fig 1.png", rbc_fig1)
+```
+
+#EDA:
+#boxplot on productivity grouped by gender:
+```{r}
+plot_boxplot(current_employees, by = "gender", geom_boxplot_args = list("outlier.color" = "red"))
+```
+
+
+#leadership for level on gender:
+```{r, fig.width = 5}
+conclusion_fig <- current_employees %>% 
+  ggplot(aes(leadership_for_level, ..count..)) +
+  geom_bar(aes(fill = gender), position = "fill") +
+  scale_fill_manual(name = "Gender", values = c("#FDAF01", "#01B9FD", "#7501FD")) +
+  labs(title = "Distribution of Performance and Genders", y = "Proportion", x= "Performance") +
+  theme_minimal()
+conclusion_fig
+ggsave("Conclusion Fig.png", conclusion_fig)
+```
+
+#role senority on gender:
+```{r, fig.height = 5}
+RBC_fig2 <- ggplot(current_employees, aes(role_seniority, ..count..)) +
+  geom_bar(aes(fill = gender), position = "fill") +
+  labs(title = "Role Seniority on Gender", x = "Role Seniority", y = "Count") +
+  scale_fill_manual(name = "Gender", values = c("#FDAF01", "#01B9FD", "#7501FD")) +
+  theme_minimal()
+RBC_fig2
+ggsave("RBC fig 2.png", RBC_fig2)
+```
+
+#fit model on original dataset:
+```{r}
+mod_current <- gls(salary ~gender+team+role_seniority+leadership_for_level+productivity,data=current_employees,method = "ML")
+summary(mod_current)
+
+mod_lg <- glm(salary ~gender+team+role_seniority+leadership_for_level+productivity,data=current_employees)
+summary(mod_lg)
+```
+
+#fixed effects & random effects:
+```{r}
+lmm1 <- lme(salary ~gender+team+role_seniority+leadership_for_level+productivity,data=current_employees,
+            random = ~1|employee_id, method = "ML")
+lmm2 <- lme(salary ~gender+team+role_seniority+leadership_for_level+productivity,data=current_employees,
+            random = ~1|financial_q, method = "ML")
+lmm3 <- lme(salary ~gender+team+role_seniority+leadership_for_level+productivity,data=current_employees,
+            random = ~1|role_seniority, method = "ML")
+lmm4 <- lme(salary ~gender+team+role_seniority+leadership_for_level+productivity,data=current_employees,
+            random = ~1|leadership_for_level, method = "ML")
+```
+
+#compare between models:
+```{r}
+anova(mod_current, lmm1, lmm2, lmm3, lmm4)
+```
+
+# QQ plots (drawn to the same scale!)
+```{r}
+par(mfrow = c(1,2))
+lims <- c(-3.5,3.5)
+qqnorm(resid(mod_current, type = "normalized"),
+       xlim = lims, ylim = lims,main = "GLM base")
+abline(0,1, col = "red", lty = 2)
+qqnorm(resid(lmm4, type = "normalized"),
+       xlim = lims, ylim = lims, main = "lmm4")
+abline(0,1, col = "red", lty = 2)
+
+summary(lmm4)
+lmm4$coefficients
+```
+
+```{r}
+library(DiagrammeR)
+flowchart_rbc <- grViz("digraph flowchart {
+      # node definitions with substituted label text
+      node [fontname = Helvetica, shape = rectangle]        
+      tab1 [label = '@@1']
+      tab2 [label = '@@2']
+      tab3 [label = '@@3']
+      tab4 [label = '@@4']
+      tab5 [label = '@@5']
+      tab6 [label = '@@6']
+
+      # edge definitions with the node IDs
+      tab1 -> tab2;
+      tab1 -> tab3;
+      tab1 -> tab4;
+      tab1 -> tab5;
+      tab2 -> tab6;
+      tab3 -> tab6;
+      tab4 -> tab6;
+      tab5 -> tab6
+      
+      
+      }
+
+      [1]: '6906 Observations of 607 employees'
+      [2]: 'Gender'
+      [3]: 'Team'
+      [4]: 'Average Productivity'
+      [5]: 'Number of Promotions'
+      [6]: 'Fit Model'
+      ")
+flowchart_rbc
+```
